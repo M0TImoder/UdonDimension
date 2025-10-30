@@ -1,0 +1,27 @@
+# Rust
+/target/
+**/*.rs.bk
+**/*.rlib
+**/*.d
+
+# IDE-specific files (e.g., VS Code)
+.vscode/
+.idea/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Dependencies (if not managed by Cargo.lock)
+# If building a library, you might want to ignore Cargo.lock
+# If building an executable, you typically commit Cargo.lock
+# Cargo.lock
+
+# Environment variables or sensitive data
+# For Discord bots, this might include API tokens or other credentials
+.env
+*.env
+
+# Dev note
+/dev.txt
+

@@ -1,0 +1,2 @@
+(MaterialMeshBundle<bevy::prelude::StandardMaterial>, bevy_rapier3d::dynamics::RigidBody, bevy_rapier3d::geometry::Collider, bevy_rapier3d::dynamics::Damping)
+(MaterialMeshBundle<bevy::prelude::StandardMaterial>, bevy_rapier3d::dynamics::RigidBody, bevy_rapier3d::geometry::Collider, bevy_rapier3d::dynamics::Damping): Bundle
