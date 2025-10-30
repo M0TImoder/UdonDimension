@@ -20,7 +20,9 @@ bevy = { version = "0.13", default-features = false, features = [
 ] }
 winit = { version = "0.29", default-features = false, features = ["x11"] }
 bevy_rapier3d = { version = "0.25" }
-sdl2 = { version = "0.36", default-features = false, features = ["hidapi", "bundled"] }
 
 [patch.crates-io]
 cmake = { path = "patches/cmake" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gilrs = "0.10"

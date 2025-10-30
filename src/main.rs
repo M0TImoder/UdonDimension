@@ -7,13 +7,6 @@ use bevy::math::{
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_rapier3d::prelude::*;
-use sdl2::controller::{
-    Axis as GameControllerAxis, Button as GameControllerButton, GameController,
-};
-use sdl2::event::Event;
-use sdl2::GameControllerSubsystem;
-use std::collections::HashMap;
-use std::fmt::Write;
 
 fn main()
 {
@@ -91,9 +84,8 @@ fn setup(
         controller,
     ));
 
-    commands.add(|world: &mut World| {
-        world.insert_non_send_resource(SdlControllerManager::new());
-    });
+    #[cfg(not(target_os = "windows"))]
+    commands.insert_resource(GamepadManager::new());
 
     commands.spawn((
         TextBundle {
@@ -203,268 +195,375 @@ struct CameraController
 #[derive(Component)]
 struct ControllerDisplay;
 
-struct ControllerAxes
+#[cfg(target_os = "windows")]
+mod gamepad
 {
-    left: Vec2,
-    right: Vec2,
-    trigger_left: f32,
-    trigger_right: f32,
-}
+    use bevy::math::Vec2;
+    use gilrs::{
+        Axis as GilrsAxis,
+        Button as GilrsButton,
+        Event as GilrsEvent,
+        EventType as GilrsEventType,
+        GamepadId,
+        Gilrs,
+    };
+    use std::collections::HashMap;
+    use std::fmt::Write;
 
-impl Default for ControllerAxes
-{
-    fn default() -> Self
+    #[derive(Default)]
+    struct ControllerAxes
     {
-        Self {
-            left: Vec2::ZERO,
-            right: Vec2::ZERO,
-            trigger_left: 0.0,
-            trigger_right: 0.0,
-        }
-    }
-}
-
-struct ControllerEntry
-{
-    index: usize,
-    #[allow(dead_code)]
-    controller: GameController,
-    buttons: Vec<GameControllerButton>,
-    axes: ControllerAxes,
-}
-
-impl ControllerEntry
-{
-    fn new(index: usize, controller: GameController) -> Self
-    {
-        Self {
-            index,
-            controller,
-            buttons: Vec::new(),
-            axes: ControllerAxes::default(),
-        }
-    }
-}
-
-struct SdlControllerManager
-{
-    sdl: sdl2::Sdl,
-    controller_subsystem: GameControllerSubsystem,
-    controllers: HashMap<u32, ControllerEntry>,
-    next_index: usize,
-}
-
-impl SdlControllerManager
-{
-    fn new() -> Self
-    {
-        let sdl = sdl2::init().expect("SDL2 initialization failed");
-        let controller_subsystem = sdl
-            .game_controller()
-            .expect("Controller subsystem init failed");
-
-        let mut manager = Self {
-            sdl,
-            controller_subsystem,
-            controllers: HashMap::new(),
-            next_index: 0,
-        };
-
-        manager.scan_existing_controllers();
-
-        manager
+        left: Vec2,
+        right: Vec2,
+        trigger_left: f32,
+        trigger_right: f32,
     }
 
-    fn scan_existing_controllers(&mut self)
+    struct ControllerEntry
     {
-        let Ok(count) = self.controller_subsystem.num_joysticks() else {
-            return;
-        };
-
-        for device_index in 0..count {
-            self.open_controller(device_index as u32);
-        }
+        index: usize,
+        buttons: Vec<GilrsButton>,
+        axes: ControllerAxes,
     }
 
-    fn poll_events(&mut self) -> Vec<Event>
+    impl ControllerEntry
     {
-        let mut collected = Vec::new();
-
-        if let Ok(mut pump) = self.sdl.event_pump() {
-            for event in pump.poll_iter() {
-                collected.push(event);
+        fn new(index: usize) -> Self
+        {
+            Self {
+                index,
+                buttons: Vec::new(),
+                axes: ControllerAxes::default(),
             }
         }
-
-        collected
     }
 
-    fn open_controller(&mut self, device_index: u32)
+    pub struct GamepadManager
     {
-        if !self.controller_subsystem.is_game_controller(device_index) {
-            return;
+        gilrs: Gilrs,
+        controllers: HashMap<GamepadId, ControllerEntry>,
+        next_index: usize,
+    }
+
+    impl GamepadManager
+    {
+        pub fn new() -> Self
+        {
+            let mut gilrs = Gilrs::new().expect("Gilrs initialization failed");
+
+            let mut manager = Self {
+                gilrs,
+                controllers: HashMap::new(),
+                next_index: 0,
+            };
+
+            manager.scan_existing_controllers();
+
+            manager
         }
 
-        let Ok(controller) = self.controller_subsystem.open(device_index) else {
-            return;
-        };
+        fn scan_existing_controllers(&mut self)
+        {
+            let ids: Vec<GamepadId> = self
+                .gilrs
+                .gamepads()
+                .map(|(id, _)| id)
+                .collect();
 
-        let instance_id = controller.instance_id();
-
-        if self.controllers.contains_key(&instance_id) {
-            return;
-        }
-
-        let entry = ControllerEntry::new(self.next_index, controller);
-        self.next_index += 1;
-        self.controllers.insert(instance_id, entry);
-    }
-
-    fn remove_controller(&mut self, instance_id: u32)
-    {
-        self.controllers.remove(&instance_id);
-    }
-
-    fn update_button(&mut self, instance_id: u32, button: GameControllerButton, pressed: bool)
-    {
-        if let Some(entry) = self.controllers.get_mut(&instance_id) {
-            if pressed {
-                if !entry.buttons.iter().any(|stored| *stored == button) {
-                    entry.buttons.push(button);
-                    entry.buttons.sort_by_key(|stored| *stored as i32);
-                }
-            } else if let Some(position) = entry.buttons.iter().position(|stored| *stored == button)
+            for id in ids
             {
-                entry.buttons.remove(position);
+                self.add_controller(id);
+                self.refresh_state(id);
             }
         }
-    }
 
-    fn update_axis(&mut self, instance_id: u32, axis: GameControllerAxis, value: i16)
-    {
-        if let Some(entry) = self.controllers.get_mut(&instance_id) {
-            let numeric = value as f32;
+        pub fn poll_events(&mut self)
+        {
+            while let Some(event) = self.gilrs.next_event()
+            {
+                self.handle_event(event);
+            }
 
-            match axis {
-                GameControllerAxis::LeftX => entry.axes.left.x = numeric,
-                GameControllerAxis::LeftY => entry.axes.left.y = numeric,
-                GameControllerAxis::RightX => entry.axes.right.x = numeric,
-                GameControllerAxis::RightY => entry.axes.right.y = numeric,
-                GameControllerAxis::TriggerLeft => entry.axes.trigger_left = numeric,
-                GameControllerAxis::TriggerRight => entry.axes.trigger_right = numeric,
-            }
-        }
-    }
-
-    fn handle_event(&mut self, event: Event)
-    {
-        match event {
-            Event::ControllerDeviceAdded { which, .. } => {
-                self.open_controller(which);
-            }
-            Event::ControllerDeviceRemoved { which, .. } => self.remove_controller(which),
-            Event::ControllerButtonDown { which, button, .. } => {
-                self.update_button(which, button, true)
-            }
-            Event::ControllerButtonUp { which, button, .. } => {
-                self.update_button(which, button, false)
-            }
-            Event::ControllerAxisMotion {
-                which, axis, value, ..
-            } => self.update_axis(which, axis, value),
-            _ => {}
-        }
-    }
-
-    fn compose_display(&self) -> String
-    {
-        if self.controllers.is_empty() {
-            return "No controllers connected".to_string();
+            self.gilrs.inc();
         }
 
-        let mut entries: Vec<&ControllerEntry> = self.controllers.values().collect();
-        entries.sort_by_key(|entry| entry.index);
-
-        let mut output = String::new();
-
-        for (idx, entry) in entries.iter().enumerate() {
-            if idx > 0 {
-                output.push('\n');
+        fn add_controller(&mut self, id: GamepadId)
+        {
+            if self.controllers.contains_key(&id)
+            {
+                return;
             }
 
-            let _ = write!(output, "Controller{}: ", entry.index);
+            let entry = ControllerEntry::new(self.next_index);
+            self.next_index += 1;
+            self.controllers.insert(id, entry);
+        }
 
-            if entry.buttons.is_empty() {
-                output.push_str("Buttons[] ");
-            } else {
-                output.push_str("Buttons[");
+        fn remove_controller(&mut self, id: GamepadId)
+        {
+            self.controllers.remove(&id);
+        }
 
-                for (button_idx, button) in entry.buttons.iter().enumerate() {
-                    if button_idx > 0 {
-                        output.push(' ');
+        fn update_button(&mut self, id: GamepadId, button: GilrsButton, pressed: bool)
+        {
+            if let Some(entry) = self.controllers.get_mut(&id)
+            {
+                if pressed
+                {
+                    if !entry.buttons.iter().any(|stored| *stored == button)
+                    {
+                        entry.buttons.push(button);
+                        entry.buttons.sort_by_key(|stored| *stored as u16);
+                    }
+                }
+                else if let Some(position) = entry.buttons.iter().position(|stored| *stored == button)
+                {
+                    entry.buttons.remove(position);
+                }
+            }
+        }
+
+        fn update_axis(&mut self, id: GamepadId, axis: GilrsAxis, value: f32)
+        {
+            if let Some(entry) = self.controllers.get_mut(&id)
+            {
+                match axis
+                {
+                    GilrsAxis::LeftStickX => entry.axes.left.x = value,
+                    GilrsAxis::LeftStickY => entry.axes.left.y = value,
+                    GilrsAxis::RightStickX => entry.axes.right.x = value,
+                    GilrsAxis::RightStickY => entry.axes.right.y = value,
+                    GilrsAxis::LeftZ => entry.axes.trigger_left = value,
+                    GilrsAxis::RightZ => entry.axes.trigger_right = value,
+                    _ => {}
+                }
+            }
+        }
+
+        fn refresh_state(&mut self, id: GamepadId)
+        {
+            if let Some(entry) = self.controllers.get_mut(&id)
+            {
+                if let Some(gamepad) = self.gilrs.connected_gamepad(id)
+                {
+                    entry.axes.left.x = gamepad.value(GilrsAxis::LeftStickX);
+                    entry.axes.left.y = gamepad.value(GilrsAxis::LeftStickY);
+                    entry.axes.right.x = gamepad.value(GilrsAxis::RightStickX);
+                    entry.axes.right.y = gamepad.value(GilrsAxis::RightStickY);
+                    entry.axes.trigger_left = gamepad.value(GilrsAxis::LeftZ);
+                    entry.axes.trigger_right = gamepad.value(GilrsAxis::RightZ);
+
+                    entry.buttons.clear();
+
+                    let mut collected = Vec::new();
+
+                    for button in [
+                        GilrsButton::South,
+                        GilrsButton::East,
+                        GilrsButton::West,
+                        GilrsButton::North,
+                        GilrsButton::C,
+                        GilrsButton::Z,
+                        GilrsButton::LeftTrigger,
+                        GilrsButton::LeftTrigger2,
+                        GilrsButton::RightTrigger,
+                        GilrsButton::RightTrigger2,
+                        GilrsButton::Select,
+                        GilrsButton::Start,
+                        GilrsButton::Mode,
+                        GilrsButton::LeftThumb,
+                        GilrsButton::RightThumb,
+                        GilrsButton::DPadUp,
+                        GilrsButton::DPadDown,
+                        GilrsButton::DPadLeft,
+                        GilrsButton::DPadRight,
+                    ]
+                    {
+                        if gamepad.is_pressed(button)
+                        {
+                            collected.push(button);
+                        }
                     }
 
-                    output.push_str(button_label(*button));
+                    collected.sort_by_key(|stored| *stored as u16);
+                    entry.buttons = collected;
                 }
-
-                output.push_str("] ");
             }
-
-            let _ = write!(
-                output,
-                "LStick: {:.2},{:.2} RStick: {:.2},{:.2} LTrigger: {:.2} RTrigger: {:.2}",
-                entry.axes.left.x,
-                entry.axes.left.y,
-                entry.axes.right.x,
-                entry.axes.right.y,
-                entry.axes.trigger_left,
-                entry.axes.trigger_right
-            );
         }
 
-        output
+        fn handle_event(&mut self, event: GilrsEvent)
+        {
+            match event.event
+            {
+                GilrsEventType::Connected =>
+                {
+                    self.add_controller(event.id);
+                    self.refresh_state(event.id);
+                }
+                GilrsEventType::Disconnected => self.remove_controller(event.id),
+                GilrsEventType::ButtonPressed(button, _) =>
+                {
+                    self.update_button(event.id, button, true);
+                }
+                GilrsEventType::ButtonReleased(button, _) =>
+                {
+                    self.update_button(event.id, button, false);
+                }
+                GilrsEventType::AxisChanged(axis, value, _) =>
+                {
+                    self.update_axis(event.id, axis, value);
+                }
+                GilrsEventType::Dropped => self.refresh_state(event.id),
+                _ => {}
+            }
+        }
+
+        pub fn compose_display(&self) -> String
+        {
+            if self.controllers.is_empty()
+            {
+                return "No controllers connected".to_string();
+            }
+
+            let mut entries: Vec<&ControllerEntry> = self.controllers.values().collect();
+            entries.sort_by_key(|entry| entry.index);
+
+            let mut output = String::new();
+
+            for (idx, entry) in entries.iter().enumerate()
+            {
+                if idx > 0
+                {
+                    output.push('\n');
+                }
+
+                let _ = write!(output, "Controller{}: ", entry.index);
+
+                if entry.buttons.is_empty()
+                {
+                    output.push_str("Buttons[] ");
+                }
+                else
+                {
+                    output.push_str("Buttons[");
+
+                    for (button_idx, button) in entry.buttons.iter().enumerate()
+                    {
+                        if button_idx > 0
+                        {
+                            output.push(' ');
+                        }
+
+                        output.push_str(button_label(*button));
+                    }
+
+                    output.push_str("] ");
+                }
+
+                let _ = write!(
+                    output,
+                    "LStick: {:.2},{:.2} RStick: {:.2},{:.2} LTrigger: {:.2} RTrigger: {:.2}",
+                    entry.axes.left.x,
+                    entry.axes.left.y,
+                    entry.axes.right.x,
+                    entry.axes.right.y,
+                    entry.axes.trigger_left,
+                    entry.axes.trigger_right
+                );
+            }
+
+            output
+        }
+    }
+
+    impl Default for GamepadManager
+    {
+        fn default() -> Self
+        {
+            Self::new()
+        }
+    }
+
+    fn button_label(button: GilrsButton) -> &'static str
+    {
+        match button
+        {
+            GilrsButton::South => "A",
+            GilrsButton::East => "B",
+            GilrsButton::West => "X",
+            GilrsButton::North => "Y",
+            GilrsButton::C => "C",
+            GilrsButton::Z => "Z",
+            GilrsButton::Select => "Back",
+            GilrsButton::Mode => "Guide",
+            GilrsButton::Start => "Start",
+            GilrsButton::LeftThumb => "LStick",
+            GilrsButton::RightThumb => "RStick",
+            GilrsButton::LeftTrigger => "L",
+            GilrsButton::RightTrigger => "R",
+            GilrsButton::LeftTrigger2 => "L2",
+            GilrsButton::RightTrigger2 => "R2",
+            GilrsButton::DPadUp => "DPadUp",
+            GilrsButton::DPadDown => "DPadDown",
+            GilrsButton::DPadLeft => "DPadLeft",
+            GilrsButton::DPadRight => "DPadRight",
+            GilrsButton::Unknown => "Unknown",
+        }
     }
 }
 
-fn button_label(button: GameControllerButton) -> &'static str
+#[cfg(not(target_os = "windows"))]
+mod gamepad
 {
-    match button {
-        GameControllerButton::A => "A",
-        GameControllerButton::B => "B",
-        GameControllerButton::X => "X",
-        GameControllerButton::Y => "Y",
-        GameControllerButton::Back => "Back",
-        GameControllerButton::Guide => "Guide",
-        GameControllerButton::Start => "Start",
-        GameControllerButton::LeftStick => "LStick",
-        GameControllerButton::RightStick => "RStick",
-        GameControllerButton::LeftShoulder => "L",
-        GameControllerButton::RightShoulder => "R",
-        GameControllerButton::DPadUp => "DPadUp",
-        GameControllerButton::DPadDown => "DPadDown",
-        GameControllerButton::DPadLeft => "DPadLeft",
-        GameControllerButton::DPadRight => "DPadRight",
-        GameControllerButton::Misc1 => "Misc1",
-        GameControllerButton::Paddle1 => "Paddle1",
-        GameControllerButton::Paddle2 => "Paddle2",
-        GameControllerButton::Paddle3 => "Paddle3",
-        GameControllerButton::Paddle4 => "Paddle4",
-        GameControllerButton::Touchpad => "Touchpad",
+    use bevy::prelude::Resource;
+
+    #[derive(Resource)]
+    pub struct GamepadManager;
+
+    impl GamepadManager
+    {
+        pub fn new() -> Self
+        {
+            Self
+        }
+
+        pub fn poll_events(&mut self)
+        {
+        }
+
+        pub fn compose_display(&self) -> String
+        {
+            "Controller support is unavailable on this platform".to_string()
+        }
     }
 }
 
+use gamepad::GamepadManager;
+
+#[cfg(target_os = "windows")]
 fn process_controller_events(
-    mut manager: NonSendMut<SdlControllerManager>,
+    mut manager: Local<GamepadManager>,
     mut display: Query<&mut Text, With<ControllerDisplay>>,
 )
 {
-    let events = manager.poll_events();
+    manager.poll_events();
 
-    for event in events {
-        manager.handle_event(event);
+    if let Ok(mut text) = display.get_single_mut()
+    {
+        text.sections[0].value = manager.compose_display();
     }
+}
 
-    if let Ok(mut text) = display.get_single_mut() {
+#[cfg(not(target_os = "windows"))]
+fn process_controller_events(
+    mut manager: ResMut<GamepadManager>,
+    mut display: Query<&mut Text, With<ControllerDisplay>>,
+)
+{
+    manager.poll_events();
+
+    if let Ok(mut text) = display.get_single_mut()
+    {
         text.sections[0].value = manager.compose_display();
     }
 }
