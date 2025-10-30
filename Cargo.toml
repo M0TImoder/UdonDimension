@@ -19,3 +19,4 @@ bevy = { version = "0.13", default-features = false, features = [
     "multi-threaded"
 ] }
 winit = { version = "0.29", default-features = false, features = ["x11"] }
+bevy_rapier3d = { version = "0.25" }
