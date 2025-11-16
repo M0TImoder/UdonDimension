@@ -2,8 +2,10 @@ pub mod time;
 pub mod units;
 
 use bevy::app::AppExit;
+use bevy::input::gamepad::{GamepadAxis, GamepadAxisType, Gamepads};
 use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseMotion;
+use bevy::input::Axis;
 use bevy::math::EulerRot;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow, WindowMode};
@@ -88,6 +90,8 @@ fn setup_camera(
 fn camera_move(
     time: Res<Time>,
     input: Res<ButtonInput<KeyCode>>,
+    axes: Res<Axis<GamepadAxis>>,
+    gamepads: Res<Gamepads>,
     mut query: Query<&mut Transform, With<Camera>>
 )
 {
@@ -123,6 +127,23 @@ fn camera_move(
         direction += right;
     }
 
+    if let Some(gamepad) = gamepads.iter().next()
+    {
+        let axis_x = axes
+            .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickX))
+            .unwrap_or(0.0);
+        let axis_y = axes
+            .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickY))
+            .unwrap_or(0.0);
+        let stick_input = Vec2::new(axis_x, axis_y);
+        let deadzone = 0.1;
+
+        if stick_input.length_squared() > deadzone * deadzone
+        {
+            direction += forward * stick_input.y + right * stick_input.x;
+        }
+    }
+
     if direction.length_squared() == 0.0
     {
         return;
@@ -134,6 +155,9 @@ fn camera_move(
 }
 
 fn camera_look(
+    time: Res<Time>,
+    axes: Res<Axis<GamepadAxis>>,
+    gamepads: Res<Gamepads>,
     mut motion_events: EventReader<MouseMotion>,
     mut query: Query<(&mut Transform, &mut CameraController), With<Camera>>
 )
@@ -145,16 +169,34 @@ fn camera_look(
         delta += event.delta;
     }
 
-    if delta == Vec2::ZERO
-    {
-        return;
-    }
-
     let (mut transform, mut controller) = match query.get_single_mut()
     {
         Ok(result) => result,
         Err(_) => return,
     };
+
+    if let Some(gamepad) = gamepads.iter().next()
+    {
+        let axis_x = axes
+            .get(GamepadAxis::new(gamepad, GamepadAxisType::RightStickX))
+            .unwrap_or(0.0);
+        let axis_y = axes
+            .get(GamepadAxis::new(gamepad, GamepadAxisType::RightStickY))
+            .unwrap_or(0.0);
+        let stick_input = Vec2::new(axis_x, -axis_y);
+        let deadzone = 0.1;
+
+        if stick_input.length_squared() > deadzone * deadzone
+        {
+            let stick_speed = 2.5;
+            delta += stick_input * stick_speed * time.delta_seconds() / controller.sensitivity;
+        }
+    }
+
+    if delta == Vec2::ZERO
+    {
+        return;
+    }
 
     controller.yaw -= delta.x * controller.sensitivity;
     controller.pitch -= delta.y * controller.sensitivity;
