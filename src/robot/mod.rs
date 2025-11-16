@@ -1,9 +1,10 @@
 pub mod drive;
 
+use crate::core::time::{TickEvent, TimeSystem};
+use crate::physics::drag::AirDrag;
 use bevy::math::primitives::Cuboid;
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
-use crate::core::time::{TickEvent, TimeSystem};
 use drive::DriveInput;
 
 pub struct RobotPlugin;
@@ -20,7 +21,7 @@ impl Plugin for RobotPlugin
 fn spawn_robot(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>
+    mut materials: ResMut<Assets<StandardMaterial>>,
 )
 {
     commands.spawn(
@@ -35,14 +36,17 @@ fn spawn_robot(
             RigidBody::Dynamic,
             Collider::cuboid(0.5, 0.5, 0.5),
             Velocity::default(),
-            DriveInput::default()
+            ExternalForce::default(),
+            AdditionalMassProperties::Mass(20.0),
+            AirDrag::new(1.05, 0.05, Vec3::splat(1.0)),
+            DriveInput::default(),
         )
     );
 }
 
 fn apply_drive_input_velocity(
     mut tick_events: EventReader<TickEvent>,
-    mut query: Query<(&DriveInput, &Transform, &mut Velocity), With<RigidBody>>
+    mut query: Query<(&DriveInput, &Transform, &mut Velocity), With<RigidBody>>,
 )
 {
     for _event in tick_events.read()
