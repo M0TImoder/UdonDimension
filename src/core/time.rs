@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::core::units::Seconds;
 
 pub struct TimeManagerPlugin;
 
@@ -14,10 +15,10 @@ impl Plugin for TimeManagerPlugin
 #[derive(Resource, Default)]
 pub struct SimulationTime
 {
-    pub elapsed: f32,
+    pub elapsed: Seconds,
 }
 
 fn accumulate_time(time: Res<Time>, mut simulation_time: ResMut<SimulationTime>)
 {
-    simulation_time.elapsed += time.delta_seconds();
+    simulation_time.elapsed += Seconds::from(time.delta_seconds());
 }

@@ -1,4 +1,5 @@
 pub mod time;
+pub mod units;
 
 use bevy::app::AppExit;
 use bevy::input::keyboard::KeyCode;
@@ -6,6 +7,7 @@ use bevy::input::mouse::MouseMotion;
 use bevy::math::EulerRot;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow, WindowMode};
+use crate::core::units::MetersPerSecond;
 
 pub struct CorePlugin;
 
@@ -127,8 +129,8 @@ fn camera_move(
     }
 
     let direction = direction.normalize();
-    let speed = 5.0;
-    transform.translation += direction * speed * time.delta_seconds();
+    let speed = MetersPerSecond::new(5.0);
+    transform.translation += direction * speed.value() * time.delta_seconds();
 }
 
 fn camera_look(
