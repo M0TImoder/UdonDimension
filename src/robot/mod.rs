@@ -24,20 +24,49 @@ fn spawn_robot(
     mut materials: ResMut<Assets<StandardMaterial>>,
 )
 {
+    let box_size = Vec3::splat(1.0);
+    let half_extents = box_size * 0.5;
+    let mass = 20.0;
+    let inertia = Vec3
+    {
+        x: (mass / 12.0) * (box_size.y * box_size.y + box_size.z * box_size.z),
+        y: (mass / 12.0) * (box_size.x * box_size.x + box_size.z * box_size.z),
+        z: (mass / 12.0) * (box_size.x * box_size.x + box_size.y * box_size.y),
+    };
+
     commands.spawn(
         (
             PbrBundle
             {
-                mesh: meshes.add(Mesh::from(Cuboid::from_size(Vec3::splat(1.0)))),
+                mesh: meshes.add(Mesh::from(Cuboid::from_size(box_size))),
                 material: materials.add(Color::rgb(0.8, 0.2, 0.2)),
                 transform: Transform::from_xyz(0.0, 5.0, 0.0),
                 ..default()
             },
             RigidBody::Dynamic,
-            Collider::cuboid(0.5, 0.5, 0.5),
+            Ccd::enabled(),
+            Collider::cuboid(half_extents.x, half_extents.y, half_extents.z),
+            Friction
+            {
+                coefficient: 1.5,
+                combine_rule: CoefficientCombineRule::Min,
+            },
+            Restitution
+            {
+                coefficient: 0.1,
+                combine_rule: CoefficientCombineRule::Min,
+            },
             Velocity::default(),
             ExternalForce::default(),
-            AdditionalMassProperties::Mass(20.0),
+            AdditionalMassProperties::MassProperties(
+                MassProperties
+                {
+                    local_center_of_mass: Vec3::new(0.0, -half_extents.y * 0.15, 0.0),
+                    mass,
+                    principal_inertia_local_frame: Quat::IDENTITY,
+                    principal_inertia: inertia,
+                }
+            ),
             AirDrag::new(1.05, 0.05, Vec3::splat(1.0)),
             DriveInput::default(),
         )
