@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bevy = { version = "0.13", default-features = false, features = [
     "bevy_asset",
+    "bevy_gilrs",
     "bevy_core_pipeline",
     "bevy_render",
     "bevy_scene",
