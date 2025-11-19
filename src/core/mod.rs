@@ -17,8 +17,30 @@ impl Plugin for CorePlugin
 {
     fn build(&self, app: &mut App)
     {
-        app.add_systems(Startup, setup_camera)
-            .add_systems(Update, (camera_look, camera_move, handle_window_input));
+        app.init_resource::<InputState>()
+            .add_systems(Startup, setup_camera)
+            .add_systems(
+                Update, 
+                (
+                    camera_look, 
+                    camera_move, 
+                    handle_window_input, 
+                    toggle_input_mode
+                )
+            );
+    }
+}
+
+#[derive(Resource)]
+pub struct InputState {
+    pub cursor_locked: bool,
+}
+
+impl Default for InputState {
+    fn default() -> Self {
+        Self {
+            cursor_locked: true,
+        }
     }
 }
 
@@ -87,14 +109,39 @@ fn setup_camera(
     );
 }
 
+fn toggle_input_mode(
+    input: Res<ButtonInput<KeyCode>>,
+    mut state: ResMut<InputState>,
+    mut window_query: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if input.just_pressed(KeyCode::KeyK) {
+        state.cursor_locked = !state.cursor_locked;
+        
+        if let Ok(mut window) = window_query.get_single_mut() {
+            if state.cursor_locked {
+                window.cursor.visible = false;
+                window.cursor.grab_mode = CursorGrabMode::Locked;
+            } else {
+                window.cursor.visible = true;
+                window.cursor.grab_mode = CursorGrabMode::None;
+            }
+        }
+    }
+}
+
 fn camera_move(
     time: Res<Time>,
     input: Res<ButtonInput<KeyCode>>,
     axes: Res<Axis<GamepadAxis>>,
     gamepads: Res<Gamepads>,
-    mut query: Query<&mut Transform, With<Camera>>
+    mut query: Query<&mut Transform, With<Camera>>,
+    state: Res<InputState>,
 )
 {
+    if !state.cursor_locked {
+        return;
+    }
+
     let mut transform = match query.get_single_mut()
     {
         Ok(transform) => transform,
@@ -159,9 +206,15 @@ fn camera_look(
     axes: Res<Axis<GamepadAxis>>,
     gamepads: Res<Gamepads>,
     mut motion_events: EventReader<MouseMotion>,
-    mut query: Query<(&mut Transform, &mut CameraController), With<Camera>>
+    mut query: Query<(&mut Transform, &mut CameraController), With<Camera>>,
+    state: Res<InputState>,
 )
 {
+    if !state.cursor_locked {
+        motion_events.clear(); 
+        return;
+    }
+
     let mut delta = Vec2::ZERO;
 
     for event in motion_events.read()
@@ -200,7 +253,7 @@ fn camera_look(
 
     controller.yaw -= delta.x * controller.sensitivity;
     controller.pitch -= delta.y * controller.sensitivity;
-    // ピッチ反転防止閾値
+    
     controller.pitch = controller
         .pitch
         .clamp(controller.pitch_limits.x, controller.pitch_limits.y);

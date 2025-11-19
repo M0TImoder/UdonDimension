@@ -2,6 +2,8 @@ mod core;
 mod physics;
 mod robot;
 mod debug;
+mod design;
+mod ui;
 
 use bevy::prelude::*;
 use bevy::window::WindowPlugin;
@@ -25,10 +27,12 @@ fn main()
                     }
                 ),
                 physics::PhysicsPlugin,
+                design::DesignPlugin,
                 core::time::TimeManagerPlugin,
                 core::CorePlugin,
                 robot::RobotPlugin,
-                debug::DebugPlugin
+                debug::DebugPlugin,
+                ui::UiPlugin
             )
         )
         .run();

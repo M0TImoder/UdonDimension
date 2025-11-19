@@ -26,5 +26,6 @@ Thumbs.db
 /dev.txt
 /test.bat
 
-# Codex
-/UdonDimension
+# UdonDimension
+/assets/models/
+*.urdf
