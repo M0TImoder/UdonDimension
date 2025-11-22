@@ -31,10 +31,18 @@ fn screenshot_input(
     if input.just_pressed(KeyCode::F3) {
         if let Ok(window) = main_window.get_single() {
             let now: DateTime<Local> = SystemTime::now().into();
-            let filename = format!("screenshot-{}.png", now.format("%Y-%m-%d-%H-%M-%S"));
-            let path = Path::new(&filename);
+            let dir = Path::new("screenshots");
+            if !dir.exists() {
+                if let Err(e) = std::fs::create_dir(dir) {
+                    error!("Failed to create screenshots directory: {}", e);
+                    return;
+                }
+            }
             
-            match screenshot_manager.save_screenshot_to_disk(window, path) {
+            let filename = format!("screenshot-{}.png", now.format("%Y-%m-%d-%H-%M-%S"));
+            let path = dir.join(&filename);
+            
+            match screenshot_manager.save_screenshot_to_disk(window, &path) {
                 Ok(_) => {
                     let path_buf = path.to_path_buf();
                     let filename_clone = filename.clone();

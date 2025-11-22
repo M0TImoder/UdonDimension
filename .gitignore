@@ -29,3 +29,5 @@ Thumbs.db
 # UdonDimension
 /assets/models/
 *.urdf
+
+/screenshots/
