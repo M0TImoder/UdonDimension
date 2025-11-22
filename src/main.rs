@@ -33,6 +33,7 @@ fn main()
                 robot::RobotPlugin,
                 debug::DebugPlugin,
                 ui::UiPlugin
+                // bevy_rapier3d::render::RapierDebugRenderPlugin::default()
             )
         )
         .run();

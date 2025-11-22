@@ -34,7 +34,7 @@ struct PendingJoint {
 
 #[derive(Component)]
 struct PendingCollider {
-    scale: Vec3,
+    transform: Transform,
 }
 
 pub struct RobotLoaderPlugin;
@@ -265,25 +265,27 @@ fn spawn_link_recursive(
             let mesh_handle = asset_server.load(&mesh_path);
             let material_handle = materials.add(Color::rgb(0.8, 0.8, 0.8));
 
+            let visual_transform = Transform {
+                translation: Vec3::from_array(visual.origin.xyz.map(|v| v as f32)),
+                rotation: Quat::from_euler(
+                    EulerRot::XYZ,
+                    visual.origin.rpy[0] as f32,
+                    visual.origin.rpy[1] as f32,
+                    visual.origin.rpy[2] as f32,
+                ),
+                scale: mesh_scale,
+            };
+
             entity_cmd.with_children(|parent| {
                 parent.spawn(PbrBundle {
                     mesh: mesh_handle.clone(),
                     material: material_handle,
-                    transform: Transform {
-                        translation: Vec3::from_array(visual.origin.xyz.map(|v| v as f32)),
-                        rotation: Quat::from_euler(
-                            EulerRot::XYZ,
-                            visual.origin.rpy[0] as f32,
-                            visual.origin.rpy[1] as f32,
-                            visual.origin.rpy[2] as f32,
-                        ),
-                        scale: mesh_scale,
-                    },
+                    transform: visual_transform,
                     ..default()
                 });
             });
 
-            entity_cmd.insert(PendingCollider { scale: mesh_scale });
+            entity_cmd.insert(PendingCollider { transform: visual_transform });
             entity_cmd.insert(mesh_handle);
         }
     }
@@ -353,11 +355,12 @@ fn apply_mesh_colliders(
     for (entity, mesh_handle, pending, pending_joint) in query.iter_mut() {
         if let Some(mesh) = meshes.get(mesh_handle) {
             if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
-                let scaled_positions: Vec<Vec3> = positions.iter()
-                    .map(|p| Vec3::new(p[0], p[1], p[2]) * pending.scale)
+                
+                let transformed_positions: Vec<Vec3> = positions.iter()
+                    .map(|p| pending.transform.transform_point(Vec3::new(p[0], p[1], p[2])))
                     .collect();
                 
-                if let Some(collider) = Collider::convex_hull(&scaled_positions) {
+                if let Some(collider) = Collider::convex_hull(&transformed_positions) {
                     let robot_collision_group = CollisionGroups::new(Group::GROUP_2, Group::GROUP_1);
                     
                     let mut cmd = commands.entity(entity);
