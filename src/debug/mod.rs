@@ -1,4 +1,5 @@
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy_rapier3d::render::DebugRenderContext;
 use bevy::input::gamepad::{
     Gamepad,
     GamepadAxis,
@@ -25,6 +26,23 @@ impl Default for DebugOverlayState
         Self
         {
             visible: true,
+        }
+    }
+}
+
+#[derive(Resource)]
+struct RapierDebugState
+{
+    enabled: bool,
+}
+
+impl Default for RapierDebugState
+{
+    fn default() -> Self
+    {
+        Self
+        {
+            enabled: false,
         }
     }
 }
@@ -75,12 +93,15 @@ impl Plugin for DebugPlugin
     {
         app.add_plugins(FrameTimeDiagnosticsPlugin)
             .init_resource::<DebugOverlayState>()
-            .add_systems(Startup, setup_debug_overlay)
+            .init_resource::<RapierDebugState>()
+            .add_systems(Startup, (setup_debug_overlay, setup_rapier_debug))
             .add_systems(
                 Update,
                 (
                     toggle_debug_overlay,
+                    toggle_rapier_debug,
                     apply_debug_visibility.after(toggle_debug_overlay),
+                    apply_rapier_debug_visibility.after(toggle_rapier_debug),
                     update_fps_text,
                     update_position_text,
                     update_gamepad_text
@@ -215,12 +236,33 @@ fn setup_debug_overlay(mut commands: Commands, asset_server: Res<AssetServer>)
     );
 }
 
+fn setup_rapier_debug(mut debug_context: ResMut<DebugRenderContext>)
+{
+    debug_context.enabled = false;
+}
+
 fn toggle_debug_overlay(input: Res<ButtonInput<KeyCode>>, mut state: ResMut<DebugOverlayState>)
 {
     if input.just_pressed(KeyCode::F2)
     {
         state.visible = !state.visible;
     }
+}
+
+fn toggle_rapier_debug(input: Res<ButtonInput<KeyCode>>, mut state: ResMut<RapierDebugState>)
+{
+    if input.just_pressed(KeyCode::F1)
+    {
+        state.enabled = !state.enabled;
+    }
+}
+
+fn apply_rapier_debug_visibility(
+    state: Res<RapierDebugState>,
+    mut debug_context: ResMut<DebugRenderContext>
+)
+{
+    debug_context.enabled = state.enabled;
 }
 
 fn apply_debug_visibility(

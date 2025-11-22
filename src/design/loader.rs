@@ -15,15 +15,19 @@ use crate::physics::drag::AirDrag;
 #[derive(Event)]
 pub struct LoadRobotRequest {
     pub model_name: String,
+    pub slot: usize,
 }
 
 #[derive(Resource)]
 struct DeferredLoadRequest {
     model_name: String,
+    pub slot: usize,
 }
 
 #[derive(Component)]
-pub struct RobotPart;
+pub struct RobotPart {
+    pub slot: usize,
+}
 
 #[derive(Component)]
 struct PendingJoint {
@@ -37,6 +41,11 @@ struct PendingCollider {
     transform: Transform,
 }
 
+#[derive(Resource, Default)]
+pub struct LoadedRobots {
+    pub robots: HashMap<usize, String>,
+}
+
 pub struct RobotLoaderPlugin;
 
 impl Plugin for RobotLoaderPlugin {
@@ -46,6 +55,7 @@ impl Plugin for RobotLoaderPlugin {
         }
         app
             .add_event::<LoadRobotRequest>()
+            .init_resource::<LoadedRobots>()
             .add_systems(Update, (
                 handle_load_request, 
                 load_deferred_robot, 
@@ -73,17 +83,20 @@ fn read_file_to_string_smart(path: &Path) -> Option<String> {
 fn handle_load_request(
     mut commands: Commands,
     mut load_events: EventReader<LoadRobotRequest>,
-    robot_parts_query: Query<Entity, With<RobotPart>>,
+    robot_parts_query: Query<(Entity, &RobotPart)>,
 ) {
     for event in load_events.read() {
-        info!("Request received. Clearing existing robot and scheduling load for: {}", event.model_name);
+        info!("Request received. Clearing slot {} and scheduling load for: {}", event.slot, event.model_name);
 
-        for entity in robot_parts_query.iter() {
-            commands.entity(entity).despawn_recursive();
+        for (entity, part) in robot_parts_query.iter() {
+            if part.slot == event.slot {
+                commands.entity(entity).despawn_recursive();
+            }
         }
 
         commands.insert_resource(DeferredLoadRequest {
             model_name: event.model_name.clone(),
+            slot: event.slot,
         });
     }
 }
@@ -93,13 +106,14 @@ fn load_deferred_robot(
     deferred_request: Option<Res<DeferredLoadRequest>>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut loaded_robots: ResMut<LoadedRobots>,
 ) {
     let request = match deferred_request {
         Some(r) => r,
         None => return,
     };
 
-    info!("Executing deferred load for: {}", request.model_name);
+    info!("Executing deferred load for: {} in slot {}", request.model_name, request.slot);
 
     let model_dir = Path::new("assets/models").join(&request.model_name);
     
@@ -121,7 +135,8 @@ fn load_deferred_robot(
         match urdf_rs::read_from_string(&urdf_content) {
             Ok(robot) => {
                 info!("URDF parsed successfully. Robot name: {}", robot.name);
-                spawn_robot_recursive_root(&mut commands, &asset_server, &mut materials, &robot);
+                spawn_robot_recursive_root(&mut commands, &asset_server, &mut materials, &robot, request.slot);
+                loaded_robots.robots.insert(request.slot, request.model_name.clone());
             },
             Err(e) => error!("Failed to parse generated URDF: {:?}", e),
         }
@@ -187,6 +202,7 @@ fn spawn_robot_recursive_root(
     asset_server: &Res<AssetServer>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     robot: &urdf_rs::Robot,
+    slot: usize,
 ) {
     let link_map: HashMap<String, &urdf_rs::Link> = robot.links.iter()
         .map(|l| (l.name.clone(), l))
@@ -208,7 +224,9 @@ fn spawn_robot_recursive_root(
 
     if let Some(root_name) = root_link_name {
         info!("Found root link: {}", root_name);
-        let initial_transform = Transform::from_xyz(0.0, 2.0, 0.0);
+        // スロットに応じて位置をずらす (例: X軸方向に2m間隔)
+        let offset_x = (slot as f32 - 1.0) * 2.0;
+        let initial_transform = Transform::from_xyz(offset_x, 2.0, 0.0);
         
         spawn_link_recursive(
             commands,
@@ -218,6 +236,7 @@ fn spawn_robot_recursive_root(
             &child_map,
             root_name,
             initial_transform,
+            slot,
         );
     } else {
         error!("No root link found!");
@@ -232,6 +251,7 @@ fn spawn_link_recursive(
     child_map: &HashMap<String, Vec<(&String, &urdf_rs::Joint)>>,
     link_name: &str,
     transform: Transform,
+    slot: usize,
 ) -> Entity {
     let link = link_map.get(link_name).expect("Link not found in map");
 
@@ -240,7 +260,7 @@ fn spawn_link_recursive(
         TransformBundle::from(transform),
         VisibilityBundle::default(),
         Name::new(link.name.clone()),
-        RobotPart,
+        RobotPart { slot },
     ));
 
     if link.inertial.mass.value > 0.0 {
@@ -316,6 +336,7 @@ fn spawn_link_recursive(
                 child_map,
                 child_name,
                 child_transform,
+                slot,
             );
 
             let axis = Vec3::from_array(joint.axis.xyz.map(|v| v as f32));

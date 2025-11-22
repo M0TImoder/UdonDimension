@@ -4,11 +4,14 @@ use std::fs;
 use std::path::Path;
 use crate::design::loader::LoadRobotRequest;
 
+pub mod screenshot;
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
+           .add_plugins(screenshot::ScreenshotPlugin)
            .init_resource::<AvailableModels>()
            .add_systems(Startup, (scan_models_directory, configure_ui_font)) // <--- フォント設定を追加
            .add_systems(Update, ui_system);
@@ -64,31 +67,45 @@ fn scan_models_directory(mut available_models: ResMut<AvailableModels>) {
     }
 }
 
+use crate::design::loader::LoadedRobots;
+
 fn ui_system(
     mut contexts: EguiContexts,
     available_models: Res<AvailableModels>,
     mut load_event_writer: EventWriter<LoadRobotRequest>,
+    loaded_robots: Res<LoadedRobots>,
 ) {
     egui::TopBottomPanel::top("top_panel").show(contexts.ctx_mut(), |ui| {
         egui::menu::bar(ui, |ui| {
             ui.menu_button("ファイル", |ui| {
-                ui.menu_button("開く...", |ui| {
-                    if available_models.models.is_empty() {
-                        ui.label("利用可能なモデルがありません");
-                    } else {
-                        for model_name in &available_models.models {
-                            if ui.button(model_name).clicked() {
-                                load_event_writer.send(LoadRobotRequest {
-                                    model_name: model_name.clone(),
-                                });
-                                ui.close_menu();
-                            }
-                        }
-                    }
-                });
-                
                 if ui.button("終了").clicked() {
                     std::process::exit(0);
+                }
+            });
+
+            ui.menu_button("ロボット", |ui| {
+                for i in 1..=10 {
+                    let label = if let Some(name) = loaded_robots.robots.get(&i) {
+                        format!("スロット{}: {}", i, name)
+                    } else {
+                        format!("スロット{}", i)
+                    };
+
+                    ui.menu_button(label, |ui| {
+                        if available_models.models.is_empty() {
+                            ui.label("利用可能なモデルがありません");
+                        } else {
+                            for model_name in &available_models.models {
+                                if ui.button(model_name).clicked() {
+                                    load_event_writer.send(LoadRobotRequest {
+                                        model_name: model_name.clone(),
+                                        slot: i,
+                                    });
+                                    ui.close_menu();
+                                }
+                            }
+                        }
+                    });
                 }
             });
         });
