@@ -121,7 +121,7 @@ fn setup_debug_overlay(mut commands: Commands, asset_server: Res<AssetServer>)
                 style: Style
                 {
                     position_type: PositionType::Absolute,
-                    top: Val::Px(8.0),
+                    bottom: Val::Px(40.0),
                     left: Val::Px(8.0),
                     ..default()
                 },
